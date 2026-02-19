@@ -1,17 +1,20 @@
-import { Component, signal } from '@angular/core';
+import { Component, signal, OnInit } from '@angular/core';
 import { Header } from '../../header/header';
 import { FormBuilder, FormGroup, ReactiveFormsModule, Validators } from '@angular/forms';
 import { DELIVERY_SIZES, DELIVERY_SPEEDS } from './order.config';
 import { UpperCasePipe } from '@angular/common';
+import { DeliveryApi } from '../../services/delivery-api';
+
 declare var ymaps: any;
 
 @Component({
   selector: 'app-order',
+  standalone: true,
   imports: [Header, UpperCasePipe, ReactiveFormsModule],
   templateUrl: './order.html',
   styleUrl: './order.css',
 })
-export class Order {
+export class Order implements OnInit {
   public readonly sizes = DELIVERY_SIZES;
   public readonly speeds = DELIVERY_SPEEDS;
 
@@ -21,10 +24,10 @@ export class Order {
   public routeForm: FormGroup;
   public orderForm: FormGroup;
 
-  public orderId: any = signal(null);
-  public calculationResult: any = signal(null);
+  public orderId = signal<string | null>(null);
+  public calculationResult = signal<any>(null);
 
-  constructor(private formBuilder: FormBuilder) {
+  constructor(private formBuilder: FormBuilder, private deliveryApi: DeliveryApi) {
     this.routeForm = this.formBuilder.group({
       from: ['', Validators.required],
       to: ['', Validators.required],
@@ -37,6 +40,7 @@ export class Order {
       comment: ['']
     });
   }
+
   ngOnInit() {
     ymaps.ready(() => {
       this.map = new ymaps.Map('map', {
@@ -45,9 +49,12 @@ export class Order {
         controls: ['zoomControl']
       });
 
-      // Подключаем подсказки адресов к полям от яндекса
-      (new ymaps.SuggestView('from')).events.add('select', (event: any) => (this.routeForm.controls['from'].setValue(event.get('item')?.value ?? '')));
-      (new ymaps.SuggestView('to')).events.add('select', (event: any) => (this.routeForm.controls['to'].setValue(event.get('item')?.value ?? '')));
+      (new ymaps.SuggestView('from')).events.add('select', (event: any) => 
+        this.routeForm.controls['from'].setValue(event.get('item')?.value ?? '')
+      );
+      (new ymaps.SuggestView('to')).events.add('select', (event: any) => 
+        this.routeForm.controls['to'].setValue(event.get('item')?.value ?? '')
+      );
     });
   }
 
@@ -62,9 +69,7 @@ export class Order {
   public calculate() {
     this.calculationResult.set(null);
 
-    if (!this.map || this.routeForm.invalid) {
-      return;
-    }
+    if (!this.map || this.routeForm.invalid) return;
 
     const { from, to, size, speed } = this.routeForm.getRawValue();
 
@@ -82,16 +87,13 @@ export class Order {
     this.mapRoute.model.events.add('requestsuccess', () => {
       try {
         const activeRoute = this.mapRoute.getActiveRoute();
-        if (!activeRoute) {
-          return this.failedCalculation();
-        }
+        if (!activeRoute) return this.failedCalculation();
 
         const km = activeRoute.properties.get('distance').value / 1000;
-        const sizeValue = size ?? '';
-        const sizeConfig = this.sizes.find((item) => item.value === sizeValue);
-        if (!sizeConfig) {
-          return this.failedCalculation();
-        }
+        const sizeConfig = this.sizes.find((item) => item.value === size);
+        
+        if (!sizeConfig) return this.failedCalculation();
+
         let total = Math.max(sizeConfig.min, Math.ceil(km * sizeConfig.rate));
         let duration = Math.min(30, 1 + Math.ceil(km / 80));
 
@@ -101,14 +103,9 @@ export class Order {
         }
 
         this.calculationResult.set({
-          from,
-          to,
-          size,
+          from, to, size, duration, total, speed,
           distance: km.toFixed(1),
-          duration,
           rate: sizeConfig.rate,
-          total,
-          speed
         });
       } catch (err) {
         this.failedCalculation();
@@ -117,36 +114,29 @@ export class Order {
 
     this.mapRoute.model.events.add('requestfail', () => this.failedCalculation());
   }
+
   private failedCalculation() {
     this.calculationResult.set(null);
-    alert('Не удалось построить маршрут. Проверьте адреса и выбранные параметры.');
+    alert('Не удалось построить маршрут. Проверьте адреса.');
   }
 
   public submitOrder() {
     const calculation = this.calculationResult();
-    if (!calculation) {
-      alert('Сначала рассчитайте стоимость, чтобы оформить заявку');
-      return;
-    }
-
-    if (this.orderForm.invalid) {
-      alert('Введите имя и корректный телефон');
-      return;
-    }
+    if (!calculation || this.orderForm.invalid) return;
 
     const { name, phone, comment } = this.orderForm.getRawValue();
-    const trimmedName = (name ?? '').trim();
-    const trimmedPhone = (phone ?? '').trim();
-    const trimmedComment = (comment ?? '').trim();
-
     const payload = {
-      customer: { name: trimmedName, phone: trimmedPhone, comment: trimmedComment },
+      customer: { name: name.trim(), phone: phone.trim(), comment: comment.trim() },
       calculation: calculation,
       createdAt: new Date().toISOString()
     };
 
-    console.log(payload);
-    this.orderId.set(1);
+    this.deliveryApi.createDelivery(payload).subscribe((response) => {
+      if ('error' in response) {
+        alert(response.error);
+        return;
+      }
+      this.orderId.set(response.id);
+    });
   }
-
 }
