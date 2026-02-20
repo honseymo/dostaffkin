@@ -47,7 +47,7 @@
                         <div class="main-size-rate">{{ size.rate }} ₽/км</div>
                     </div>
                     <div class="main-size-media" [class.main-size-media-palleta]="size.value === 'max'">
-                        <img [src]="'/public/img/sizes/' + size.value + '.png'" [alt]="size.value" />
+                        <img [src]="'img/sizes/' + size.value + '.png'" [alt]="size.value" />
                     </div>
                     <div class="main-size-description" [innerHTML]="size.description"></div>
                 </div>
@@ -62,7 +62,7 @@
                 <div class="speed-card" [class.is-active]="routeForm.value.speed === speed.value"
                     (click)="selectSpeed(speed.value)">
                     <div class="speed-icon-media">
-                        <img src="/public/img/icons/{{speed.value}}.svg" alt="Speed" />
+                        <img src="img/icons/{{speed.value}}.svg" alt="Speed" />
                     </div>
                     <div class="speed-label">{{ speed.label }}</div>
                 </div>
